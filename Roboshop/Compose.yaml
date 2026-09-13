@@ -1,60 +1,126 @@
-srvices:
+services:
   mongodb:
-    image: mongodb:v1
+    image: mongo:6.0
     container_name: mongodb
     volumes:
       - mongodb:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: catalogue
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - roboshop
+
   catalogue:
-     image: catalogue:v1
-     container_name: catalogue
-     depends_on:
-      - mongodb
+    build:
+      context: ./Catalogue
+    image: catalogue:v1
+    container_name: catalogue
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - roboshop
+
   redis:
     image: redis:7.0
     container_name: redis
     volumes:
       - redis:/data
+    networks:
+      - roboshop
+
   rabbitmq:
     image: rabbitmq:3
     container_name: rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: roboshop
       RABBITMQ_DEFAULT_PASS: roboshop123
-      volumes:
-        - rabbitmq:/var/lib/rabbitmq
+    volumes:
+      - rabbitmq:/var/lib/rabbitmq
+    networks:
+      - roboshop
+
   user:
+    build:
+      context: ./User
     image: user:v1
     container_name: user
     depends_on:
-      - redis
-      - mongodb
+      redis:
+        condition: service_started
+      mongodb:
+        condition: service_healthy
+    networks:
+      - roboshop
+
   cart:
+    build:
+      context: ./Cart
     image: cart:v1
     container_name: cart
     depends_on:
-     - redis
-     - catalogue
+      redis:
+        condition: service_started
+      catalogue:
+        condition: service_started
+    networks:
+      - roboshop
+
   shipping:
-   image: shipping:v1
-   container_name: shipping
-   depends_on:
-    - mysql
-    - cart
+    build:
+      context: ./Shipping
+    image: shipping:v1
+    container_name: shipping
+    depends_on:
+      mysql:
+        condition: service_healthy
+      cart:
+        condition: service_started
+    networks:
+      - roboshop
+
   payment:
-   image: payment:v1
-   container_name: payment
-   depends_on:
-    - user
-    - cart
-    - rabbitmq
+    build:
+      context: ./Payment
+    image: payment:v1
+    container_name: payment
+    depends_on:
+      user:
+        condition: service_started
+      cart:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+    networks:
+      - roboshop
+
   mysql:
-    image: mysql:v1
+    image: mysql:8.0
     container_name: mysql
     volumes:
       - mysql:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: shipping
+      MYSQL_USER: shipping
+      MYSQL_PASSWORD: shipping123
+    healthcheck:
+      test: mysqladmin ping -h localhost -u root -proot || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - roboshop
+
   frontend:
+    build:
+      context: ./Frontend
     image: frontend:v1
-    container_name: frontend  
+    container_name: frontend
     ports:
       - "80:80"
     depends_on:
@@ -63,15 +129,17 @@ srvices:
       - user
       - payment
       - shipping
-networks:
-  default:
-   driver: bridge
-   name: roboshop
-   external: false
-volumes:
-   mongodb:  #docker create volume mongodb
-   mysql:    #docker create volume mysql
-   redis:    #docker create volume redis
-   rabbitmq: #docker create volume rabbitmq
+    networks:
+      - roboshop
 
-#docker compose up -d
+networks:
+  roboshop:
+    driver: bridge
+    name: roboshop
+    external: false
+
+volumes:
+  mongodb:
+  mysql:
+  redis:
+  rabbitmq:
